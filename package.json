@@ -1,0 +1,33 @@
+{
+  "name": "pi-sarvam",
+  "version": "0.1.0",
+  "description": "Sarvam AI provider for pi — sarvam-105b chat catalog (128K / 32K), INR-derived USD pricing, reasoning_effort thinking control, /login and a readable overflow/auth error layer.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "sarvam",
+    "sarvam-105b",
+    "openai-compat"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "test": "node --test --import ./test/no-network.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm test",
+    "live": "node live/check.ts"
+  }
+}
