@@ -13,7 +13,9 @@ gateway the gateway won (recorded).
 ## Install / use
 
 ```
-pi install /path/to/pi-sarvam       # or: pi -e /path/to/pi-sarvam/index.ts
+pi install git:github.com/RarogCmex/pi-sarvam@main
+# or a local checkout:  pi install /path/to/pi-sarvam
+# or one-shot:          pi -e /path/to/pi-sarvam/index.ts
 /login sarvam                        # or export SARVAM_API_KEY=sk_...
 pi --provider sarvam --model sarvam/sarvam-105b -p "hello"
 ```
