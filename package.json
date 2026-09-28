@@ -1,8 +1,17 @@
 {
-  "name": "pi-sarvam",
+  "name": "@rarogcmex/pi-sarvam",
   "version": "0.1.0",
   "description": "Sarvam AI provider for pi — sarvam-105b chat catalog (128K / 32K), INR-derived USD pricing, reasoning_effort thinking control, /login and a readable overflow/auth error layer.",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RarogCmex/pi-sarvam.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RarogCmex/pi-sarvam/issues"
+  },
+  "homepage": "https://github.com/RarogCmex/pi-sarvam#readme",
   "keywords": [
     "pi-package",
     "pi",
@@ -11,6 +20,12 @@
     "sarvam-105b",
     "openai-compat"
   ],
+  "scripts": {
+    "test": "node --test --import ./test/no-network.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm test",
+    "live": "node live/check.ts"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
@@ -24,10 +39,7 @@
       "optional": true
     }
   },
-  "scripts": {
-    "test": "node --test --import ./test/no-network.ts",
-    "typecheck": "tsc -p tsconfig.json",
-    "check": "npm run typecheck && npm test",
-    "live": "node live/check.ts"
+  "publishConfig": {
+    "access": "public"
   }
 }
