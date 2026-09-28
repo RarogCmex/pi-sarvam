@@ -211,8 +211,8 @@ on/off, and the two error paths.
 
 ## What is verified live, and how
 
-All on **2026-09-26**, pi 0.87.1, key from `secret.env` (`sk_…`, prefix
-`sk_xxxx`). Cost discipline: every fact below came from a **rejected** request
+All on **2026-09-26**, pi 0.87.1, using a real key from the maintainer's
+`secret.env` (never committed). Cost discipline: every fact below came from a **rejected** request
 (free) or a tiny generation (`max_tokens ≤ 64`). No limit was "measured" by
 generating output.
 
