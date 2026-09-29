@@ -79,9 +79,9 @@ export default function (pi: ExtensionAPI) {
           type: "custom_message",
           customType: "sarvam-auth-help",
           content:
-            "Sarvam AI: ключ недействителен, отозван или истёк — либо на счету закончились " +
-            `кредиты (шлюз отвечает одинаково, HTTP 403). Проверьте ключ и баланс: ${API_KEYS_URL} ` +
-            `затем выполните \`/login ${PROVIDER_ID}\` или обновите \`SARVAM_API_KEY\`.`,
+            "Sarvam AI: the API key is invalid, revoked or expired — or the account has run " +
+            `out of credits (the gateway answers both with HTTP 403). Check the key and the balance: ${API_KEYS_URL} ` +
+            `then run \`/login ${PROVIDER_ID}\` or update \`SARVAM_API_KEY\`.`,
           display: true,
         },
       ],
