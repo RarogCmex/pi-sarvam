@@ -11,7 +11,7 @@
  *  2. Request shape. `api.sarvam.ai` matches none of pi's auto-detection
  *     branches, so the detected defaults are wrong in four places — every flag
  *     below is set deliberately and each is backed by a live probe recorded in
- *     README § "What was verified live".
+ *     README § "What is verified live, and how".
  */
 
 import type { Model, ModelCost, OpenAICompletionsCompat } from "@earendil-works/pi-ai";

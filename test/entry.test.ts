@@ -134,7 +134,7 @@ describe("extension wiring", () => {
   });
 
   test("turn_end stays silent in print mode so `pi -p` still prints the error", () => {
-    // Pitfall P23: a persistent entry after the errored assistant message makes
+    // A persistent entry after the errored assistant message makes
     // `pi -p` print nothing. The handler must bail when the context has no UI.
     const { pi, handlers } = fakePi();
     sarvamExtension(pi);

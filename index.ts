@@ -58,8 +58,8 @@ export default function (pi: ExtensionAPI) {
   // scroll. Guarded to error outcome + this provider + the 403 auth case only;
   // deduped via customType so re-emits do not stack. The `ctx.hasUI` gate is
   // load-bearing: an entry appended *after* the errored assistant message makes
-  // `pi -p` print nothing at all (pitfall P23), so print mode keeps only the
-  // rewritten error bubble.
+  // `pi -p` print nothing at all, so print mode keeps only the rewritten error
+  // bubble.
   pi.on("turn_end", (event, ctx) => {
     if (!ctx.hasUI) return;
     if (event.outcome !== "error") return;
@@ -89,7 +89,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   // Sarvam rejects two payload shapes pi produces by default (see errors.ts):
-  // a user turn sent as a parts array instead of a string (S28), and the absent
+  // a user turn sent as a parts array instead of a string, and the absent
   // `reasoning_effort` that would leave reasoning on when the user asked for
   // `off`. One guarded transform fixes both.
   pi.on("before_provider_request", (event) => {

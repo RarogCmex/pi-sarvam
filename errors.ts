@@ -24,7 +24,7 @@
  *     (a) pi sends a user turn as a *parts array*
  *         (`[{"type":"text","text":"…"}]`) while Sarvam requires a plain
  *         string (`400 body.messages.1.user.content : Input should be a valid
- *         string` — this is the known S28 trap); and
+ *         string`); and
  *     (b) Sarvam reasons *by default* and only disables it when
  *         `reasoning_effort: null` is present, while pi omits the field for its
  *         `off` level.

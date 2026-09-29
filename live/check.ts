@@ -19,7 +19,8 @@
  *     recognizes it *after* our rewrite (the raw text is not recognizable — the
  *     control proves the rewrite is doing the work). Free: the request 422s.
  *  F. Auth: a bad key is rejected and becomes a readable, non-retryable message.
- *  G. The S28 shape: a user turn sent as a parts array is flattened and accepted.
+ *  G. A user turn sent as a parts array (the shape pi's agent actually sends)
+ *     is flattened and accepted.
  *
  * Prints PASS/FAIL per item; exit code 1 if anything failed.
  */
@@ -336,7 +337,7 @@ async function main(): Promise<void> {
     );
   }
 
-  // G: the S28 shape — pi's agent sends the user turn as a parts array.
+  // G: pi's agent sends the user turn as a parts array, not a plain string.
   {
     const entry = CATALOG_BY_ID.get("sarvam-105b")!;
     const r = await run(model("sarvam-105b"), {
@@ -349,7 +350,7 @@ async function main(): Promise<void> {
     total += usd;
     const userMsg = (r.sent.messages ?? []).find((m: any) => m?.role === "user");
     report(
-      "G: user turn sent as a parts array is flattened (S28)",
+      "G: user turn sent as a parts array is flattened",
       r.status === 200 && !r.errorMessage && typeof userMsg?.content === "string",
       [
         `wire user.content type: ${Array.isArray(userMsg?.content) ? "array (BUG)" : typeof userMsg?.content}`,

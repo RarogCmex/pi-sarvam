@@ -1,14 +1,17 @@
 # pi-sarvam
 
-A pi provider plugin for **Sarvam AI** (`https://api.sarvam.ai/v1`) and its
-flagship chat model **`sarvam-105b`**. Registers the `sarvam` provider with a
-curated catalog, INR→USD pricing, `reasoning_effort` thinking control, `/login`
-support, a live `/v1/models` overlay, and a narrow error layer.
+A provider plugin for [pi](https://github.com/earendil-works/pi)
+(`@earendil-works/pi-coding-agent`, the coding agent this plugs into) targeting
+**Sarvam AI** (`https://api.sarvam.ai/v1`) and its flagship chat model
+**`sarvam-105b`**. npm name: `@rarogcmex/pi-sarvam`. Registers the `sarvam`
+provider with a curated catalog, INR→USD pricing, `reasoning_effort` thinking
+control, `/login` support, a live `/v1/models` overlay, and a narrow error layer.
 
 Everything a price/window/limit claim rests on was probed against the live
-gateway on **2026-09-26** (pi 0.87.1, pi-ai 0.87.1); the raw evidence is quoted
-below. Docs were treated as hypotheses, and where they disagreed with the
-gateway the gateway won (recorded).
+gateway on **2026-09-26** (pi 0.87.1, pi-ai 0.87.1); the responses are quoted
+verbatim in § What is verified live below. Vendor docs were treated as
+hypotheses, and where a doc disagreed with the gateway the gateway won — each
+such case is called out where it is relied on.
 
 ## Install / use
 
@@ -82,9 +85,11 @@ live the same day: `GET /v1/models` and `POST /v1/chat/completions` both answer
 to `Authorization: Bearer` alone.
 
 Why the native header is not also sent: pi owns the header for a key-based
-provider, and the only seam that could add one, the `before_provider_headers`
-event (`core/extensions/types.d.ts:544-547`, fired from `core/sdk.js:191`),
-receives the assembled headers but **not** the resolved credential. Emitting
+provider, and the only seam that could add one — the `before_provider_headers`
+extension event — receives the assembled headers but **not** the resolved
+credential. (Verified against pi 0.87.1; the event is declared in pi's
+`core/extensions/types.d.ts` and fired from its `core/sdk.js`. Line numbers are
+version-fragile, the symbol names are not.) Emitting
 `api-subscription-key` would mean re-reading the key from the environment or
 `auth.json` outside pi's auth resolution — a second source of truth for a header
 the gateway accepts anyway. If a future Sarvam surface stops honouring Bearer,
@@ -130,7 +135,7 @@ and up-clamp the request to `low`, silently **billing** reasoning the user turne
 off. (probed: `reasoning_effort: null` → `reasoning_content: null`,
 `finish_reason:"stop"`; field omitted → `reasoning_content` populated.)
 
-### Payload fix: flatten text parts (S28)
+### Payload fix: flatten text parts
 
 pi's agent sends a user turn as a **parts array**
 (`[{"type":"text","text":"…"}]`), and pi-ai's completions adapter emits it
@@ -139,8 +144,9 @@ unchanged. Sarvam is Pydantic-validated and rejects the array:
 `fixSarvamPayload` collapses a **text-only** parts array to a string and passes
 anything else through untouched (images still fail loudly rather than being
 silently dropped). This was found live — a plain `curl` probe passes while real
-`pi -p` 400s. This is the known `S28` trap, reproduced here against `api.sarvam.ai`
-and fixed.
+`pi -p` 400s, so it is invisible to any test that builds the body by hand. The
+rule it generalizes to: **a hand-written probe proves nothing about the shape pi
+actually sends; drive the real adapter or the real agent.**
 
 ### Currency
 
@@ -158,7 +164,8 @@ cache hit is observable. Cache behavior was **not** verified.
 
 ### Discovery
 
-`fetchModels` (discovery.ts) reads `GET /v1/models` (no auth needed), and layers
+`fetchSarvamModels` (discovery.ts), wired into the provider's `fetchModels`
+field, reads `GET /v1/models` (no auth needed), and layers
 an **additive, unknowns-only** overlay: known ids keep their curated prices/caps,
 unknown `sarvam-*` ids get family-guessed limits and **zero** cost. A failed or
 empty listing returns `[]` and leaves the curated baseline intact. Today the
@@ -181,7 +188,7 @@ overlay is always empty — the endpoint lists exactly the two curated ids.
    (asserted against pi's real classifiers in `test/errors.test.ts`).
 3. The persistent TUI helper entry (`turn_end`) is gated on **`ctx.hasUI`** — an
    entry appended after the errored assistant message makes `pi -p` print
-   *nothing* (pitfall `P23`, reproduced live and fixed; see § Verified live).
+   *nothing*, which was reproduced live and fixed; see § Verified live.
 
 ## Surfaces — three states
 
@@ -205,16 +212,24 @@ Deprecated siblings `sarvam-m` (24B) and `sarvam-30b` are **not** listed by
 ## Non-goals
 
 Multi-account key pools, i18n, a separate transport/retry layer, `/v2` routing,
-speech/vision adapters, command trees, persisted setting stores. The `pi` checks
-needed are: register, `/login`, `--list-models`, `pi -p`, tools, thinking
-on/off, and the two error paths.
+speech/vision adapters, command trees, persisted setting stores.
+
+In particular **i18n is a non-goal**: every user-facing string in this plugin is
+English, including the persistent auth helper entry that `index.ts` appends in
+the TUI. If you see a non-English runtime message from this provider, that is a
+bug — `test/entry.test.ts` covers the entry's presence but not its wording, so
+the assertion to add is on `content`.
 
 ## What is verified live, and how
 
-All on **2026-09-26**, pi 0.87.1, using a real key from the maintainer's
-`secret.env` (never committed). Cost discipline: every fact below came from a **rejected** request
-(free) or a tiny generation (`max_tokens ≤ 64`). No limit was "measured" by
-generating output.
+All on **2026-09-26**, pi 0.87.1, with a real key. Cost discipline: every fact
+below came from a **rejected** request (free) or a tiny generation
+(`max_tokens ≤ 64`). No limit was "measured" by generating output.
+
+Re-running this yourself needs Node ≥ 22.18 (the harness is `.ts` executed
+directly), `node scripts/link-pi.mjs` once for the typecheck, and a key —
+`live/check.ts` resolves `SARVAM_API_KEY` or the credential stored by
+`/login sarvam` in `~/.pi/agent/auth.json`. It reads no other file.
 
 ### Free probes (rejections disclose the truth)
 
@@ -246,13 +261,15 @@ generating output.
 ### Offline + harness
 
 - `npm run typecheck` (`tsc -p tsconfig.json`) — clean.
-- `npm test` (`node --test`, with a preload that blocks `fetch`) — **82 passing**.
+- `npm test` (`node --test`, with a preload that blocks `fetch`) — green;
+  82 tests at the time of writing. Run it rather than trusting the count.
   Includes wire-format tests that drive pi-ai's real adapter and pin the exact
   outgoing body across the catalog × every thinking level, and negative-safety
   tests against pi's real `isContextOverflow` / `isRetryableAssistantError`.
-- `npm run live` (`live/check.ts`) — **A–G all PASS**; see cost log. E and F are
-  free (rejected); the control in E proves the raw overflow text is *not*
-  recognized and the rewrite is doing real work.
+- `npm run live` (`live/check.ts`) — **A–G all PASS** on 2026-09-26; setup and
+  cost in § Development and § What verifying this cost. E and F are free
+  (rejected requests); the control in E proves the raw overflow text is *not*
+  recognized by pi and that the rewrite is doing real work.
 
 ### Real `pi` runs (loaded with `-e`, no global install)
 
@@ -263,47 +280,74 @@ generating output.
   → `pi-sarvam` (a real tool loop: read → answer).
 - `pi -p --thinking medium "Read /etc/hosts …"` → worked (reasoning on).
 - **Invalid key in print mode** → prints the clarified 403 sentence, exit 1.
-  *Before* the `ctx.hasUI` gate this hung with **no output** (P23); the fix is
+  *Before* the `ctx.hasUI` gate this produced **no output at all**; the fix is
   covered by `test/entry.test.ts`.
 
-## Cost log (what was spent, and why that figure)
+## What verifying this cost
 
-Rates: `$0.305259/M` input, `$0.763146/M` output. Cost is `tokens × rate`.
+≈ **$0.0065** in total, at the catalog's `$0.305259/M` input and
+`$0.763146/M` output. Two facts worth carrying over:
 
-| Activity | Tokens | Cost |
-|---|---|---|
-| `live/check.ts` run 1 (B 34 + C 101 + D 136) | 271 | $0.000121 |
-| `live/check.ts` run 2 (B 34 + C 55 + D 136 + G 33) | 258 | $0.000097 |
-| `pi -p` simple, thinking off (instrumented) | 495 | $0.000152 |
-| `pi -p` read tool, thinking off (instrumented) | 7 778 | $0.002385 |
-| `pi -p` read tool, thinking medium (instrumented) | 4 023 | $0.001280 |
-| Two earlier `pi -p` runs (same shapes, uninstrumented) | ≈ 8 300 | ≈ $0.002500 |
-| All rejected probes (context caps, auth, enum, tools) | 0 (not billed) | $0.000000 |
-| **Total** | | **≈ $0.0065** |
+- **Every limit in the tables above was learned for free.** Context windows,
+  output caps, role and enum validation, and the auth shape all came from
+  requests the gateway **rejected before inference**, which it does not bill.
+- **What did cost money was the agent, not the probing.** The four paid rows are
+  the two `live/check.ts` generations (`max_tokens ≤ 64`) and three real `pi -p`
+  runs; the agent runs dominate because pi resends its system prompt every turn.
 
-That is **≈ 13 % of the $0.05 budget**. The two most expensive rows are the
-agent runs (they carry pi's ~800-token system prompt **per turn**); the
-limit-discovery probes that would normally dominate such a bill cost **nothing**
-because they were rejected before inference.
+The per-request token ledger that produced the figure is not reproduced here —
+it is build-process record, not documentation. `live/check.ts` prints its own
+token counts on each run if you want to re-derive the cost.
 
-## What remains unverified
+## Known limitations
 
-- **Auto-compaction end-to-end.** The overflow *classification* is proven
-  (harness E + unit tests), but a real session driven over the 128K edge until pi
-  compacts and retries was not run (it needs a deliberately large, multi-turn
-  session; the rejection itself is free but the surrounding turns are not).
-- **Cache behavior.** `cacheRead` pricing is documented, never observed (the
-  gateway reports no cached-token breakdown).
-- **Credits-exhausted error.** Not reproducible without draining the account; the
-  docs only say "requests will return errors". The auth rewrite names the
-  possibility but does not detect it.
-- **`/v2` surface and open-weight models** — out of scope by base URL; not probed
-  for this key.
+- **Auto-compaction is proven at the classifier, not end to end.** The overflow
+  *classification* is covered (harness E + unit tests against pi's real
+  `isContextOverflow`), but a real session driven over the 128K edge until pi
+  compacts and retries was not run: the rejection itself is free, the
+  surrounding multi-turn session is not.
+- **Cache behavior is documented, never observed.** `cacheRead` pricing comes
+  from the vendor's rate card; the gateway reports no cached-token breakdown, so
+  pi will bill all input at the input rate.
+- **Credits-exhausted is named but not detected.** Not reproducible without
+  draining the account. The gateway answers it with the same 403 as a bad key,
+  so the auth rewrite mentions both possibilities and distinguishes neither.
+- **Two curated ids only.** The open-weight models are visible on the vendor's
+  site but were not researched, and `/v2` is out of scope by base URL.
+
+## What was left unchecked in the build
+
+Recorded so a contributor does not re-derive it:
+
 - **`pi install <path>`** specifically (vs `-e`): the `pi.extensions` manifest is
-  standard, but the install path was not exercised to avoid mutating the global
+  standard, but the install path was not exercised, to avoid mutating the global
   pi config.
-- **TUI rendering** of the `sarvam-auth-help` entry (only `ctx.hasUI` gating is
-  tested; the TUI itself was not opened).
+- **TUI rendering** of the `sarvam-auth-help` entry: only the `ctx.hasUI` gating
+  is tested; the TUI itself was not opened.
+
+## Development
+
+```bash
+node scripts/link-pi.mjs   # once: link pi's packages from your global install
+npm run check              # typecheck + offline tests (fetch is blocked by a preload)
+npm run live               # opt-in A–G harness against the real gateway; spends credits
+```
+
+Prerequisites: **Node ≥ 22.18** (the tests and `live/check.ts` are `.ts` run
+directly — type stripping and `node --test`'s `.ts` discovery are unflagged from
+22.18) and a pi install.
+
+pi's own packages are not dependencies of this plugin — at runtime pi's extension
+loader aliases the bare `@earendil-works/pi-ai` specifier to its own copy — so a
+plain `npm install` leaves nothing to typecheck against. `scripts/link-pi.mjs`
+links them from your global pi install; it probes the npm prefix, nvm, pnpm,
+`~/.local`, `/usr/local` and the directory the `pi` executable resolves to, and
+creates junctions on Windows. For a specific install:
+`PI_ROOT=/path/to/node_modules node scripts/link-pi.mjs`. Verified against
+pi 0.87.1 / pi-ai 0.87.1 / `@types/node` 22.19.19.
+
+`live/check.ts` needs a key and nothing else: it resolves `SARVAM_API_KEY` or the
+credential stored by `/login sarvam`.
 
 ## Layout
 
@@ -316,4 +360,5 @@ discovery.ts  additive /v1/models overlay (never throws)
 errors.ts     overflow normalization, auth clarification, payload fixes
 live/check.ts live A–G harness (explicit; not part of npm test)
 test/*.ts     node --test suite + no-network preload
+scripts/      link-pi.mjs — dev setup only, not loaded by pi
 ```

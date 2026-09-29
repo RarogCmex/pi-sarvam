@@ -110,7 +110,7 @@ describe("reasoning-off payload fix", () => {
   });
 });
 
-describe("text-part flattening (S28)", () => {
+describe("text-part flattening (pi sends a parts array)", () => {
   test("collapses a text-only parts array to a string", () => {
     assert.equal(flattenTextParts([{ type: "text", text: "Hello " }, { type: "text", text: "world" }]), "Hello world");
   });

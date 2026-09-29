@@ -138,7 +138,7 @@ describe("request shape common to every Sarvam model", () => {
   });
 });
 
-describe("user content flattening (S28)", () => {
+describe("user content flattening (pi sends a parts array)", () => {
   test("a text-only parts array becomes a plain string", async () => {
     // pi's agent sends user turns as [{type:"text",text:"…"}]; Sarvam's
     // Pydantic body rejects the array (`400 …content : Input should be a valid
