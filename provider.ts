@@ -15,9 +15,17 @@ import {
   type ProviderStreams,
 } from "@earendil-works/pi-ai";
 import { fetchSarvamModels } from "./discovery.ts";
-import { buildModels, DEFAULT_BASE_URL, PROVIDER_ID, type GatewayApi } from "./models.ts";
+import {
+  API_KEYS_URL,
+  buildModels,
+  DEFAULT_BASE_URL,
+  PROVIDER_ID,
+  type GatewayApi,
+} from "./models.ts";
 
-export const API_KEYS_URL = "https://dashboard.sarvam.ai";
+// Re-exported so existing importers (`index.ts`, `test/provider.test.ts`) keep
+// resolving it from here. The single definition lives in `models.ts`.
+export { API_KEYS_URL };
 export const API_KEY_AUTH_NAME = "Sarvam AI API key";
 export const API_KEY_ENV_VAR = "SARVAM_API_KEY";
 export const BASE_URL_ENV_VAR = "SARVAM_BASE_URL";

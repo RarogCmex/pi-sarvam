@@ -36,9 +36,10 @@
  * cannot trigger compaction.
  */
 
-import { PROVIDER_ID } from "./models.ts";
+import { API_KEYS_URL, PROVIDER_ID } from "./models.ts";
 
-const KEY_DASHBOARD_URL = "https://dashboard.sarvam.ai";
+/** Local alias so the wording below stays readable; defined once in models.ts. */
+const KEY_DASHBOARD_URL = API_KEYS_URL;
 
 /**
  * The gateway's oversize-prompt wording. Confirmed live 2026-09-26 for both

@@ -29,6 +29,15 @@ export const PROVIDER_ID = "sarvam";
 export const DEFAULT_BASE_URL = "https://api.sarvam.ai/v1";
 
 /**
+ * Where a key is created and credits are visible. One constant on purpose: the
+ * same URL is printed by the login prompt and by the auth error rewrite, and the
+ * two used to be separate literals that could drift. Lives here because
+ * `errors.ts` and `provider.ts` both import this module, and neither may import
+ * the other's constants without risking a cycle.
+ */
+export const API_KEYS_URL = "https://dashboard.sarvam.ai";
+
+/**
  * INR per 1 USD. Mid-market rate on 2026-09-26 (open.er-api.com: 1 USD =
  * 95.918696 INR). Overridable per session via `SARVAM_INR_PER_USD`.
  */
