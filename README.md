@@ -348,7 +348,8 @@ links them from your global pi install; it probes the npm prefix, nvm, pnpm,
 `~/.local`, `/usr/local` and the directory the `pi` executable resolves to, and
 creates junctions on Windows. For a specific install:
 `PI_ROOT=/path/to/node_modules node scripts/link-pi.mjs`. Verified against
-pi 0.87.1 / pi-ai 0.87.1 / `@types/node` 22.19.19.
+pi 0.87.1 / pi-ai 0.87.1 / `@types/node` 22.19.19; the same setup and
+`npm run check` were re-run on pi 0.99.1 / pi-ai 0.99.1 (2026-09-30) — 82/82 green.
 
 `live/check.ts` needs a key and nothing else: it resolves `SARVAM_API_KEY` or the
 credential stored by `/login sarvam`.
