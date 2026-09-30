@@ -26,7 +26,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import {
   isContextOverflow,
@@ -47,14 +48,22 @@ import { parseModelIds } from "../discovery.ts";
 
 // --- key ---------------------------------------------------------------------
 
+/**
+ * pi's own agent-dir resolver, so `$PI_CODING_AGENT_DIR` and rebranded
+ * distributions are honoured: a hardcoded `~/.pi/agent/auth.json` misses a pi
+ * started with an alternate config dir, which is where `/login sarvam` stored the
+ * credential. Same class as the pi-nvidia-plus store fix (2026-09-30).
+ */
+const authJsonPath = (): string => join(getAgentDir(), "auth.json");
+
 function loadKey(): string {
   if (process.env.SARVAM_API_KEY?.trim()) return process.env.SARVAM_API_KEY.trim();
-  const auth = JSON.parse(readFileSync(`${homedir()}/.pi/agent/auth.json`, "utf8")) as Record<
+  const auth = JSON.parse(readFileSync(authJsonPath(), "utf8")) as Record<
     string,
     { type?: string; key?: string }
   >;
   const key = auth["sarvam"]?.key?.trim();
-  if (!key) throw new Error("no sarvam key in SARVAM_API_KEY or ~/.pi/agent/auth.json");
+  if (!key) throw new Error(`no sarvam key in SARVAM_API_KEY or ${authJsonPath()}`);
   return key;
 }
 

@@ -229,7 +229,8 @@ below came from a **rejected** request (free) or a tiny generation
 Re-running this yourself needs Node ≥ 22.18 (the harness is `.ts` executed
 directly), `node scripts/link-pi.mjs` once for the typecheck, and a key —
 `live/check.ts` resolves `SARVAM_API_KEY` or the credential stored by
-`/login sarvam` in `~/.pi/agent/auth.json`. It reads no other file.
+`/login sarvam` in `auth.json` under pi's agent dir (`$PI_CODING_AGENT_DIR` when
+set, else `~/.pi/agent`). It reads no other file.
 
 ### Free probes (rejections disclose the truth)
 
