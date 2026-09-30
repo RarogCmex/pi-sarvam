@@ -319,9 +319,13 @@ token counts on each run if you want to re-derive the cost.
 
 Recorded so a contributor does not re-derive it:
 
-- **`pi install <path>`** specifically (vs `-e`): the `pi.extensions` manifest is
-  standard, but the install path was not exercised, to avoid mutating the global
-  pi config.
+- **`pi install` from the published source** — exercised 2026-09-30 against
+  `git:github.com/RarogCmex/pi-sarvam@main` with `PI_CODING_AGENT_DIR` pointed at a
+  throwaway directory, so no global pi config was mutated: the package installed,
+  `pi list` showed it, and `pi --list-models sarvam` listed both catalog models
+  under a deliberately invalid key. The control run (same key, empty config dir,
+  no package) listed none — that difference is what makes the check mean
+  something. Still unchecked: a request to the live gateway on a valid key.
 - **TUI rendering** of the `sarvam-auth-help` entry: only the `ctx.hasUI` gating
   is tested; the TUI itself was not opened.
 
