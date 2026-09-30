@@ -352,6 +352,11 @@ creates junctions on Windows. For a specific install:
 pi 0.87.1 / pi-ai 0.87.1 / `@types/node` 22.19.19; the same setup and
 `npm run check` were re-run on pi 0.99.1 / pi-ai 0.99.1 (2026-09-30) — 82/82 green.
 
+`npm run typecheck` shells out to a bare `tsc`, and this repo deliberately carries
+no devDependencies (`scripts/link-pi.mjs` links only pi's packages), so TypeScript
+must be on your `PATH`: `npm i -g typescript@5.9.3` — the version CI pins
+(`.github/workflows/check.yml`); 7.0.2 also typechecks clean (measured 2026-09-30).
+
 `live/check.ts` needs a key and nothing else: it resolves `SARVAM_API_KEY` or the
 credential stored by `/login sarvam`.
 
