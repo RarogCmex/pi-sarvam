@@ -90,6 +90,22 @@ describe("extension wiring", () => {
     assert.equal(other, undefined);
   });
 
+  test("message_end clarifies a no-credits 402 as billing, not credentials", () => {
+    const { pi, handlers } = fakePi();
+    sarvamExtension(pi);
+    const result = run(handlers, "message_end", {
+      message: {
+        role: "assistant",
+        stopReason: "error",
+        provider: "sarvam",
+        errorMessage:
+          '402: {"message":"No credits available.","code":"insufficient_quota_error"}',
+      },
+    });
+    assert.match(result.message.errorMessage, /dashboard\.sarvam\.ai\/billing/);
+    assert.match(result.message.errorMessage, /rotating the key will not help/i);
+  });
+
   test("before_provider_request flattens parts and stamps reasoning off for sarvam only", () => {
     const { pi, handlers } = fakePi();
     sarvamExtension(pi);
@@ -131,6 +147,51 @@ describe("extension wiring", () => {
       { hasUI: true },
     );
     assert.equal(deduped, undefined);
+  });
+
+  test("turn_end appends a deduped quota hint for a 402, distinct from the auth one", () => {
+    const { pi, handlers } = fakePi();
+    sarvamExtension(pi);
+    const message = {
+      role: "assistant",
+      stopReason: "error",
+      provider: "sarvam",
+      errorMessage: '402: {"message":"No credits available.","code":"insufficient_quota_error"}',
+    };
+    const result = run(handlers, "turn_end", { outcome: "error", message, entries: [] }, { hasUI: true });
+    assert.equal(result.entries.length, 1);
+    assert.equal(result.entries[0].customType, "sarvam-quota-help");
+    assert.match(result.entries[0].content, /billing/);
+    // The auth hint must not claim the balance any more (402 ≠ 403, measured).
+    assert.equal(/run out of credits/.test(result.entries[0].content), false);
+
+    const deduped = run(
+      handlers,
+      "turn_end",
+      { outcome: "error", message, entries: [{ customType: "sarvam-quota-help" }] },
+      { hasUI: true },
+    );
+    assert.equal(deduped, undefined);
+
+    // A 403 still gets the auth entry, and the two dedupe independently.
+    const auth = run(
+      handlers,
+      "turn_end",
+      {
+        outcome: "error",
+        message: {
+          role: "assistant",
+          stopReason: "error",
+          provider: "sarvam",
+          errorMessage: '403: {"message":"Invalid or missing authentication credentials","code":"invalid_api_key_error"}',
+        },
+        entries: [{ customType: "sarvam-quota-help" }],
+      },
+      { hasUI: true },
+    );
+    assert.equal(auth.entries.length, 2);
+    assert.equal(auth.entries[1].customType, "sarvam-auth-help");
+    assert.match(auth.entries[1].content, /402/);
   });
 
   test("turn_end stays silent in print mode so `pi -p` still prints the error", () => {

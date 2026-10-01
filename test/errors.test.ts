@@ -4,11 +4,13 @@ import { isContextOverflow, isRetryableAssistantError } from "@earendil-works/pi
 import {
   BLANK_TOOL_CONTENT_PLACEHOLDER,
   clarifyErrorMessage,
+  clarifyQuotaErrorMessage,
   fixSarvamPayload,
   flattenTextParts,
   normalizeOverflowError,
   sanitizeBlankToolContent,
   shouldClarify,
+  shouldClarifyQuota,
   withReasoningOff,
 } from "../errors.ts";
 
@@ -23,6 +25,11 @@ const CAP_400_RAW =
   '400: {"message":"max_tokens (128001) exceeds the maximum output length of 128000 tokens for sarvam-105b.","code":"invalid_request_error","request_id":"x"}';
 const AUTH_RAW =
   '403: {"message":"Invalid or missing authentication credentials","code":"invalid_api_key_error","request_id":"20260926_f87904d3"}';
+// Exactly what pi flattens the gateway's no-credits rejection into, captured
+// live 2026-10-01 with a key whose account had zero credits (live/check.ts I):
+// HTTP 402, and the `error` envelope unwrapped just like the 403's.
+const QUOTA_RAW =
+  '402: {"message":"No credits available.","code":"insufficient_quota_error","request_id":"20261001_83e8c574"}';
 
 function assistant(errorMessage: string) {
   return {
@@ -81,6 +88,16 @@ describe("auth clarification", () => {
     assert.ok(clarified.includes("SARVAM_API_KEY"));
   });
 
+  test("no longer tells the user a 403 might be a balance problem", () => {
+    // Measured 2026-10-01: an exhausted account gets 402 insufficient_quota_error,
+    // NOT the 403. The old wording ("an account with no remaining credits — with
+    // the same status, so check both") sent users to rotate a good key.
+    const clarified = clarifyErrorMessage(AUTH_RAW)!;
+    assert.equal(/check both/i.test(clarified), false);
+    assert.match(clarified, /402/);
+    assert.match(clarified, /insufficient_quota_error/);
+  });
+
   test("the clarified sentence is neither an overflow nor retryable", () => {
     const clarified = clarifyErrorMessage(AUTH_RAW)!;
     assert.equal(isContextOverflow(assistant(clarified)), false);
@@ -98,6 +115,50 @@ describe("auth clarification", () => {
     assert.equal(shouldClarify({ role: "assistant", stopReason: "stop", provider: "sarvam", errorMessage: AUTH_RAW }), false);
     assert.equal(shouldClarify({ role: "user", stopReason: "error", provider: "sarvam", errorMessage: AUTH_RAW }), false);
     assert.equal(shouldClarify(assistant(OVERFLOW_RAW)), false);
+  });
+});
+
+describe("no-credits clarification (HTTP 402)", () => {
+  test("turns the flattened 402 into a billing sentence that says the key is fine", () => {
+    const clarified = clarifyQuotaErrorMessage(QUOTA_RAW)!;
+    assert.ok(clarified.includes("402"));
+    assert.ok(clarified.includes("insufficient_quota_error"));
+    assert.ok(clarified.includes("https://dashboard.sarvam.ai/billing"));
+    assert.ok(clarified.includes("/login sarvam"));
+    assert.ok(clarified.includes("SARVAM_API_KEY"));
+    // The point of separating it from the 403: do not send the user rotating a
+    // credential the gateway accepted.
+    assert.match(clarified, /rotating the key will not help/i);
+  });
+
+  test("the 402 and the 403 rewrites are disjoint", () => {
+    assert.equal(clarifyQuotaErrorMessage(AUTH_RAW), undefined);
+    assert.equal(clarifyErrorMessage(QUOTA_RAW), undefined);
+  });
+
+  test("neither the raw 402 nor the rewrite is an overflow or retryable", () => {
+    // pi already lists `insufficient_quota`/`billing` as non-retryable, and the
+    // rewrite keeps those substrings — asserted against the real classifiers so
+    // a quota failure can never become a retry loop.
+    assert.equal(isContextOverflow(assistant(QUOTA_RAW)), false);
+    assert.equal(isRetryableAssistantError(assistant(QUOTA_RAW)), false);
+    const clarified = clarifyQuotaErrorMessage(QUOTA_RAW)!;
+    assert.equal(isContextOverflow(assistant(clarified)), false);
+    assert.equal(isRetryableAssistantError(assistant(clarified)), false);
+  });
+
+  test("leaves unrelated errors untouched", () => {
+    assert.equal(clarifyQuotaErrorMessage(OVERFLOW_RAW), undefined);
+    assert.equal(clarifyQuotaErrorMessage(CAP_400_RAW), undefined);
+    assert.equal(clarifyQuotaErrorMessage("500 internal error"), undefined);
+  });
+
+  test("shouldClarifyQuota is guarded to this provider and error stops", () => {
+    assert.equal(shouldClarifyQuota(assistant(QUOTA_RAW)), true);
+    assert.equal(shouldClarifyQuota({ role: "assistant", stopReason: "error", provider: "openai", errorMessage: QUOTA_RAW }), false);
+    assert.equal(shouldClarifyQuota({ role: "assistant", stopReason: "stop", provider: "sarvam", errorMessage: QUOTA_RAW }), false);
+    assert.equal(shouldClarifyQuota({ role: "user", stopReason: "error", provider: "sarvam", errorMessage: QUOTA_RAW }), false);
+    assert.equal(shouldClarifyQuota(assistant(AUTH_RAW)), false);
   });
 });
 

@@ -19,7 +19,13 @@
  *      "code":"invalid_api_key_error",...}`. We turn that into a sentence that
  *     names the dashboard and the `/login` command.
  *
- *  3. Request-shape fixes. Sarvam is a Pydantic-validated single-vendor API and
+ *  3. Quota clarification. An account with no credits returns HTTP **402** with
+ *     `code: "insufficient_quota_error"` (measured live 2026-10-01), which pi
+ *     flattens the same way. It is a billing state, not a credential problem,
+ *     and the two are separable — so this gets its own sentence pointing at the
+ *     billing page rather than being folded into the 403 wording.
+ *
+ *  4. Request-shape fixes. Sarvam is a Pydantic-validated single-vendor API and
  *     rejects three payload shapes pi produces by default:
  *     (a) pi sends a user turn as a *parts array*
  *         (`[{"type":"text","text":"…"}]`) while Sarvam requires a plain
@@ -60,6 +66,15 @@ const RATE_LIMIT_RE = /rate.?limit|too many requests|\b429\b|\bRPM\b|\bTPM\b|\bR
 const AUTH_FAILURE_RE = /invalid_api_key_error|invalid or missing authentication credentials/i;
 
 /**
+ * Sarvam's exhausted-credits rejection: HTTP **402** with
+ * `{"message":"No credits available.","code":"insufficient_quota_error"}`.
+ * Measured live 2026-10-01 against a key whose account had no credits — a
+ * different status *and* code from the 403 an invalid key gets, so the two
+ * causes are separable and this plugin no longer tells the user to "check both".
+ */
+const QUOTA_FAILURE_RE = /insufficient_quota|no credits available/i;
+
+/**
  * Map Sarvam overflow phrasing onto pi's `context_length_exceeded` marker so
  * auto-compaction runs. Returns the rewritten text, or null when the error is
  * not a genuine overflow (or already rewritten — idempotent).
@@ -73,21 +88,42 @@ export function normalizeOverflowError(errorMessage: string): string | null {
 }
 
 /**
- * Return a clearer message for a Sarvam auth/billing failure, or undefined when
- * the message should be left exactly as pi produced it.
+ * Return a clearer message for a Sarvam auth failure, or undefined when the
+ * message should be left exactly as pi produced it.
  *
- * The rewrite names both causes the gateway collapses into one status (invalid
- * key and zero credit balance share the 403), and points at the dashboard.
+ * The rewrite names the credential causes the gateway collapses into one 403
+ * (invalid, revoked, expired), points at the dashboard, and says explicitly that
+ * an exhausted balance is *not* this case — that one arrives as 402 and is
+ * handled by `clarifyQuotaErrorMessage`.
  */
 export function clarifyErrorMessage(errorMessage: string): string | undefined {
   const trimmed = errorMessage.trim();
   if (!AUTH_FAILURE_RE.test(trimmed)) return undefined;
   return (
     `${PROVIDER_ID}: authentication failed (HTTP 403). Sarvam rejects an invalid, ` +
-    "revoked or expired API key — and an account with no remaining credits — with the " +
-    `same status, so check both. Create or verify a key at ${KEY_DASHBOARD_URL} ` +
+    "revoked or expired API key with this status. (It is not a balance problem: an account " +
+    "with no remaining credits answers HTTP 402 `insufficient_quota_error` instead.) " +
+    `Create or verify a key at ${KEY_DASHBOARD_URL} ` +
     `(credits: ${KEY_DASHBOARD_URL}/billing), then run /login ${PROVIDER_ID} ` +
     "or update SARVAM_API_KEY. Original message: " +
+    errorMessage
+  );
+}
+
+/**
+ * Return a clearer message for Sarvam's exhausted-credits 402, or undefined when
+ * the message is not that case. Says plainly that the key *was* accepted, so the
+ * user does not rotate a good credential, and points at the billing page.
+ */
+export function clarifyQuotaErrorMessage(errorMessage: string): string | undefined {
+  const trimmed = errorMessage.trim();
+  if (!QUOTA_FAILURE_RE.test(trimmed)) return undefined;
+  return (
+    `${PROVIDER_ID}: this account has no remaining credits (HTTP 402, insufficient_quota_error). ` +
+    "The key itself was accepted — Sarvam answers an exhausted balance with 402 and an invalid, " +
+    "revoked or expired key with 403, so rotating the key will not help. Top up the account at " +
+    `${KEY_DASHBOARD_URL}/billing, or switch to a funded key with /login ${PROVIDER_ID} ` +
+    "or SARVAM_API_KEY. Original message: " +
     errorMessage
   );
 }
@@ -105,6 +141,22 @@ export function shouldClarify(message: {
     message.provider === PROVIDER_ID &&
     typeof message.errorMessage === "string" &&
     AUTH_FAILURE_RE.test(message.errorMessage.trim())
+  );
+}
+
+/** True when an assistant message is Sarvam's exhausted-credits 402. */
+export function shouldClarifyQuota(message: {
+  role: string;
+  stopReason?: string;
+  provider?: string;
+  errorMessage?: string;
+}): boolean {
+  return (
+    message.role === "assistant" &&
+    message.stopReason === "error" &&
+    message.provider === PROVIDER_ID &&
+    typeof message.errorMessage === "string" &&
+    QUOTA_FAILURE_RE.test(message.errorMessage.trim())
   );
 }
 
