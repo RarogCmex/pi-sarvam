@@ -88,10 +88,11 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  // Sarvam rejects two payload shapes pi produces by default (see errors.ts):
-  // a user turn sent as a parts array instead of a string, and the absent
-  // `reasoning_effort` that would leave reasoning on when the user asked for
-  // `off`. One guarded transform fixes both.
+  // Sarvam rejects three payload shapes pi produces by default (see errors.ts):
+  // a user turn sent as a parts array instead of a string, a tool result whose
+  // text is blank (which then poisons every later request in the session), and
+  // the absent `reasoning_effort` that would leave reasoning on when the user
+  // asked for `off`. One guarded transform fixes all three.
   pi.on("before_provider_request", (event) => {
     const payload = event.payload as Record<string, any> | undefined;
     if (!payload || typeof payload !== "object") return;

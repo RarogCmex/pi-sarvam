@@ -15,7 +15,16 @@
 import assert from "node:assert/strict";
 import test, { describe, afterEach } from "node:test";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import type { Context, Model, ThinkingLevel, Tool, TranscriptContext } from "@earendil-works/pi-ai";
+import type {
+  AssistantMessage,
+  Context,
+  Model,
+  ThinkingLevel,
+  Tool,
+  ToolResultMessage,
+  TranscriptContext,
+  Usage,
+} from "@earendil-works/pi-ai";
 import { normalizeContext, Type } from "@earendil-works/pi-ai";
 import { CATALOG_BY_ID, SARVAM_EFFORT } from "../catalog.ts";
 import { fixSarvamPayload } from "../errors.ts";
@@ -49,33 +58,95 @@ afterEach(() => {
   requestedUrl = undefined;
 });
 
+const ZERO_USAGE: Usage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+/**
+ * A transcript shaped like a real agent turn that ends in a tool result:
+ * system + user + assistant(toolCall) + toolResult(text) + user. This is the
+ * only way to see the bytes pi sends for a *tool* message — building the body
+ * by hand proves nothing (see README § Payload fix: flatten text parts).
+ */
+function toolTranscript(toolResultText: string, tools: Tool[]): TranscriptContext {
+  const assistant: AssistantMessage = {
+    role: "assistant",
+    content: [
+      { type: "toolCall", id: "call_1", name: "get_weather", arguments: { city: "Paris" } },
+    ],
+    api: "openai-completions",
+    provider: "sarvam",
+    model: "sarvam-105b",
+    usage: ZERO_USAGE,
+    stopReason: "toolUse",
+    timestamp: Date.now(),
+  };
+  const toolResult: ToolResultMessage = {
+    role: "toolResult",
+    toolCallId: "call_1",
+    toolName: "get_weather",
+    content: [{ type: "text", text: toolResultText }],
+    isError: false,
+    timestamp: Date.now(),
+  };
+  return normalizeContext({
+    systemPrompt: "You are pi, a coding agent.",
+    tools,
+    messages: [
+      { role: "user", content: "Weather in Paris?", timestamp: Date.now() },
+      assistant,
+      toolResult,
+      { role: "user", content: "Continue.", timestamp: Date.now() },
+    ],
+  });
+}
+
 /**
  * Run a stream to its (expected) failure and return the body it would have sent,
  * after the same reasoning-off transform pi applies at `before_provider_request`.
  * The body is JSON round-tripped on purpose: pi assigns several fields the literal
  * value `undefined`, so a `key in body` check would lie about the wire bytes.
+ *
+ * `applyFixes: false` skips our transform, which is what makes a fix testable:
+ * the control shows the raw bytes the host would have sent.
  */
 async function capture(
   target: Model<"openai-completions">,
-  options: { reasoning?: ThinkingLevel; maxTokens?: number; tools?: Tool[]; userContent?: unknown } = {},
+  options: {
+    reasoning?: ThinkingLevel;
+    maxTokens?: number;
+    tools?: Tool[];
+    userContent?: unknown;
+    toolResultText?: string;
+    applyFixes?: boolean;
+  } = {},
 ): Promise<Record<string, any>> {
   let payload: Record<string, any> | undefined;
   const blocked = new Error("network blocked by test");
 
-  const transcript = options.userContent
-    ? normalizeContext({
-        systemPrompt: "You are pi, a coding agent.",
-        messages: [{ role: "user", content: options.userContent as any, timestamp: Date.now() }],
-        tools: options.tools,
-      })
-    : context({ tools: options.tools });
+  const transcript =
+    options.toolResultText !== undefined
+      ? toolTranscript(options.toolResultText, options.tools ?? [weatherTool])
+      : options.userContent
+        ? normalizeContext({
+            systemPrompt: "You are pi, a coding agent.",
+            messages: [{ role: "user", content: options.userContent as any, timestamp: Date.now() }],
+            tools: options.tools,
+          })
+        : context({ tools: options.tools });
 
   const stream = api.streamSimple(target, transcript, {
     apiKey: "sk_test",
     reasoning: options.reasoning,
     maxTokens: options.maxTokens ?? 2048,
     onPayload: (body) => {
-      const fixed = fixSarvamPayload(body as Record<string, any>);
+      const fixed =
+        options.applyFixes === false ? undefined : fixSarvamPayload(body as Record<string, any>);
       payload = (fixed ?? body) as Record<string, any>;
       return fixed;
     },
@@ -175,6 +246,60 @@ describe("user content flattening (pi sends a parts array)", () => {
     const user = body.messages.find((m: any) => m.role === "user");
     assert.equal(typeof user.content, "string");
     assert.match(user.content, /image omitted/);
+  });
+});
+
+describe("tool-result content: Sarvam requires one non-whitespace character", () => {
+  const toolMessage = (body: Record<string, any>) => {
+    const found = body.messages.find((m: any) => m.role === "tool");
+    assert.ok(found, "the adapter sent no tool message");
+    return found;
+  };
+
+  test("control: without our fix the host sends the blank text straight through", async () => {
+    // The positive control for every test below. pi-ai substitutes its own
+    // placeholder only when the joined text is *empty*; whitespace survives it
+    // (measured on pi-ai 0.87.0 and 0.99.2), and Sarvam answers
+    // `400 … tool.content : String should match pattern '\S'`.
+    const body = await capture(model("sarvam-105b"), { toolResultText: "\n", applyFixes: false });
+    assert.equal(toolMessage(body).content, "\n");
+  });
+
+  test("a whitespace-only tool result reaches the wire as the placeholder", async () => {
+    for (const blank of ["\n", "   ", "\n\t"]) {
+      const body = await capture(model("sarvam-105b"), { toolResultText: blank });
+      assert.equal(toolMessage(body).content, "(no tool output)", JSON.stringify(blank));
+      assert.equal(/\S/.test(toolMessage(body).content), true, "Sarvam's pattern must match");
+    }
+  });
+
+  test("real tool output is passed through byte for byte", async () => {
+    const text = "Paris: 12°C, rain\n";
+    const body = await capture(model("sarvam-105b"), { toolResultText: text });
+    assert.equal(toolMessage(body).content, text);
+  });
+
+  test("an empty result is already the host's placeholder, and we do not rewrite it again", async () => {
+    const raw = await capture(model("sarvam-105b"), { toolResultText: "", applyFixes: false });
+    const fixed = await capture(model("sarvam-105b"), { toolResultText: "" });
+    assert.equal(toolMessage(raw).content, "(no tool output)");
+    assert.equal(toolMessage(fixed).content, toolMessage(raw).content);
+    assert.deepEqual(fixed.messages, raw.messages);
+  });
+
+  test("the fix leaves the tool call wiring and the rest of the body intact", async () => {
+    const raw = await capture(model("sarvam-105b"), { toolResultText: "\n", applyFixes: false });
+    const fixed = await capture(model("sarvam-105b"), { toolResultText: "\n" });
+    assert.equal(toolMessage(fixed).tool_call_id, toolMessage(raw).tool_call_id);
+    assert.deepEqual(
+      fixed.messages.filter((m: any) => m.role !== "tool"),
+      raw.messages.filter((m: any) => m.role !== "tool"),
+    );
+    assert.deepEqual(fixed.tools, raw.tools);
+    assert.equal(fixed.messages.length, raw.messages.length);
+    // The other two fixes still apply on the same payload.
+    assert.equal("reasoning_effort" in fixed, true);
+    assert.equal(fixed.reasoning_effort, null);
   });
 });
 

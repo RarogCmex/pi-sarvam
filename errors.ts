@@ -20,15 +20,18 @@
  *     names the dashboard and the `/login` command.
  *
  *  3. Request-shape fixes. Sarvam is a Pydantic-validated single-vendor API and
- *     rejects two payload shapes pi produces by default:
+ *     rejects three payload shapes pi produces by default:
  *     (a) pi sends a user turn as a *parts array*
  *         (`[{"type":"text","text":"…"}]`) while Sarvam requires a plain
  *         string (`400 body.messages.1.user.content : Input should be a valid
- *         string`); and
+ *         string`);
  *     (b) Sarvam reasons *by default* and only disables it when
  *         `reasoning_effort: null` is present, while pi omits the field for its
- *         `off` level.
- *     `fixSarvamPayload` applies both, narrowly.
+ *         `off` level; and
+ *     (c) Sarvam requires a tool result to carry at least one non-whitespace
+ *         character (`400 body.messages.N.tool.content : String should match
+ *         pattern '\S'`), while pi routinely produces blank ones.
+ *     `fixSarvamPayload` applies all three, narrowly.
  *
  * Every rewrite avoids the substrings pi's retry classifier and overflow
  * detector key on (except the deliberate `context_length_exceeded` marker), so
@@ -147,6 +150,66 @@ export function flattenMessageContent(
 }
 
 /**
+ * The text a blank tool result is replaced with. Deliberately the *host's* own
+ * wording: pi-ai's completions adapter already substitutes this exact string
+ * when a tool result joins to an empty text (measured on pi-ai 0.87.0 and
+ * 0.99.2), so a sanitized payload is indistinguishable from one the adapter
+ * built itself, whichever pi version produced it.
+ */
+export const BLANK_TOOL_CONTENT_PLACEHOLDER = "(no tool output)";
+
+/** Empty or whitespace-only — the two shapes Sarvam's `\S` pattern rejects. */
+const BLANK_TEXT_RE = /^\s*$/;
+
+/**
+ * Replace a blank tool-result `content` with `BLANK_TOOL_CONTENT_PLACEHOLDER`.
+ *
+ * Why this matters more than a normal 400: the offending turn stays in the
+ * transcript, so *every* later request in the session replays it and fails at
+ * the same message index — resume cannot move past it, and the session is dead
+ * from that point on. Measured in the operator logs of 2026-09-29/30 (36 run
+ * files): 214 rejections, every one `tool.content : String should match pattern
+ * '\S'` and none the sibling `at least 1 character`; 28 blank tool results, each
+ * a single `"\n"`, all from reading one 1-byte newline-only file (26 through
+ * pi's `read`, 2 through a `bash` `sed -n`).
+ *
+ * Whitespace-only is the reachable case: a *truly empty* result is already
+ * placeholdered twice over — pi's `bash` tool emits `(no output)` for an empty
+ * stdout, and pi-ai's completions adapter emits `(no tool output)` when a tool
+ * result joins to empty text (that substitution measured on pi-ai 0.87.0 and
+ * 0.99.2 by driving the real adapter; both wordings also observed live in a pi
+ * 0.99.2 session). A result whose text is only whitespace passes through both —
+ * which is the gap this closes.
+ *
+ * Only text is judged: a content array carrying anything else (an image part, a
+ * malformed part) is returned untouched — the same rule as `flattenTextParts`,
+ * so data is never silently dropped to satisfy the validator. Pure.
+ */
+export function sanitizeBlankToolContent(
+  payload: Record<string, any>,
+): Record<string, any> | undefined {
+  const messages = payload.messages;
+  if (!Array.isArray(messages)) return undefined;
+  let changed = false;
+  const next = messages.map((message) => {
+    if (!message || typeof message !== "object" || message.role !== "tool") return message;
+    const content = message.content;
+    if (typeof content === "string") {
+      if (!BLANK_TEXT_RE.test(content)) return message;
+    } else if (Array.isArray(content)) {
+      const flat = flattenTextParts(content);
+      // Not a string ⇒ not a text-only array ⇒ leave it to fail loudly.
+      if (typeof flat !== "string" || !BLANK_TEXT_RE.test(flat)) return message;
+    } else {
+      return message;
+    }
+    changed = true;
+    return { ...message, content: BLANK_TOOL_CONTENT_PLACEHOLDER };
+  });
+  return changed ? { ...payload, messages: next } : undefined;
+}
+
+/**
  * Stamp `reasoning_effort: null` onto a Sarvam payload that omits it, which is
  * exactly the "thinking off" request. Returns a new payload when a change was
  * made, otherwise undefined so the caller leaves the original untouched.
@@ -160,9 +223,12 @@ export function withReasoningOff(
 
 /**
  * The single `before_provider_request` transform for Sarvam payloads: flatten
- * text-only parts arrays and inject the explicit reasoning-off flag. Guarded to
- * `sarvam-*` model ids so other providers in the same pi session are untouched.
- * Returns undefined when nothing changed. Pure.
+ * text-only parts arrays, un-blank tool results, and inject the explicit
+ * reasoning-off flag. Guarded to `sarvam-*` model ids so other providers in the
+ * same pi session are untouched. Returns undefined when nothing changed. Pure.
+ *
+ * Order matters for the first two: flattening turns `[{"type":"text","text":""}]`
+ * into `""`, which the blank-tool pass then recognizes.
  */
 export function fixSarvamPayload(
   payload: Record<string, any>,
@@ -172,7 +238,10 @@ export function fixSarvamPayload(
   if (typeof model !== "string" || !SARVAM_MODEL_RE.test(model)) return undefined;
 
   const flattened = flattenMessageContent(payload);
-  const next = flattened ?? payload;
-  if ("reasoning_effort" in next) return flattened;
-  return { ...next, reasoning_effort: null };
+  const sanitized = sanitizeBlankToolContent(flattened ?? payload);
+  const next = sanitized ?? flattened ?? payload;
+
+  const stamped = withReasoningOff(next);
+  if (stamped) return stamped;
+  return next === payload ? undefined : next;
 }
