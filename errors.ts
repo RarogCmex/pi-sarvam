@@ -167,11 +167,12 @@ const BLANK_TEXT_RE = /^\s*$/;
  * Why this matters more than a normal 400: the offending turn stays in the
  * transcript, so *every* later request in the session replays it and fails at
  * the same message index — resume cannot move past it, and the session is dead
- * from that point on. Measured in the operator logs of 2026-09-29/30 (36 run
- * files): 214 rejections, every one `tool.content : String should match pattern
- * '\S'` and none the sibling `at least 1 character`; 28 blank tool results, each
- * a single `"\n"`, all from reading one 1-byte newline-only file (26 through
- * pi's `read`, 2 through a `bash` `sed -n`).
+ * from that point on. Measured in the operator logs of 2026-09-29/30: 29
+ * distinct rejected requests (unique gateway `request_id`, across 15 sessions),
+ * every one `tool.content : String should match pattern '\S'` and none the
+ * sibling `at least 1 character`; 14 distinct blank tool results, each a single
+ * `"\n"`, all from reading one 1-byte newline-only file (13 through pi's `read`,
+ * 1 through a `bash` `sed -n`).
  *
  * Whitespace-only is the reachable case: a *truly empty* result is already
  * placeholdered twice over — pi's `bash` tool emits `(no output)` for an empty

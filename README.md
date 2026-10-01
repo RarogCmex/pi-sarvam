@@ -167,10 +167,11 @@ both wordings observed live in a pi 0.99.2 session. Whitespace goes straight
 through all of it: `read` on a file whose *whole content is whitespace* reaches
 the wire as-is (observed live on pi 0.99.2 — the tool result arrived as a blank
 message). That is the reachable trigger, and the operator logs that found this
-say the same thing: across 36 run files (2026-09-29/30) there were 214
-rejections, **every one** `pattern '\S'` and none the sibling `at least 1
-character`, from 28 blank tool results — each a single `"\n"`, all from reading
-one 1-byte newline-only file (26 via `read`, 2 via a `bash` `sed -n`).
+say the same thing: 29 distinct rejected requests in 2026-09-29/30 (unique
+gateway `request_id`, across 15 sessions), **every one** `pattern '\S'` and none
+the sibling `at least 1 character`, from 14 distinct blank tool results — each a
+single `"\n"`, all from reading one 1-byte newline-only file (13 via `read`, 1
+via a `bash` `sed -n`).
 
 `fixSarvamPayload` replaces a blank tool `content` with
 `BLANK_TOOL_CONTENT_PLACEHOLDER`, deliberately the *host's* own wording
