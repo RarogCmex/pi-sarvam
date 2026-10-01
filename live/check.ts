@@ -21,6 +21,15 @@
  *  F. Auth: a bad key is rejected and becomes a readable, non-retryable message.
  *  G. A user turn sent as a parts array (the shape pi's agent actually sends)
  *     is flattened and accepted.
+ *  H. A blank tool result — the one shape that used to kill a whole session.
+ *     H1 replays it *unfixed* and expects the gateway's `\S` rejection (free);
+ *     H2 sends the sanitized body and expects 200 (one tiny generation).
+ *     H1 is the control that makes H2 mean something.
+ *  I. A key whose account has no credits is rejected with **402**
+ *     `insufficient_quota_error` — a different status from the 403 a bad key
+ *     gets — and becomes a billing sentence rather than a key-rotation hint.
+ *     Free (rejected), but it needs a drained key: set SARVAM_DRAINED_API_KEY,
+ *     otherwise the check reports SKIP.
  *
  * Prints PASS/FAIL per item; exit code 1 if anything failed.
  */
@@ -39,10 +48,11 @@ import {
   type Model,
   type ThinkingLevel,
   type Tool,
+  type ToolResultMessage,
   type Usage,
 } from "@earendil-works/pi-ai";
 import { CATALOG_BY_ID, type CatalogEntry } from "../catalog.ts";
-import { clarifyErrorMessage, fixSarvamPayload, normalizeOverflowError } from "../errors.ts";
+import { clarifyErrorMessage, clarifyQuotaErrorMessage, fixSarvamPayload, normalizeOverflowError } from "../errors.ts";
 import { DEFAULT_BASE_URL, DEFAULT_INR_PER_USD, entryToModel, inrToUsd } from "../models.ts";
 import { parseModelIds } from "../discovery.ts";
 
@@ -99,6 +109,14 @@ const ZERO_USAGE: Usage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
+/**
+ * The exact tool-result text that used to kill sessions: pi's `read` on a file
+ * whose whole content is one newline returns `"\n"` (measured 2026-10-01 on pi
+ * 0.99.2 — an *empty* file comes back placeholdered and does not reproduce it).
+ */
+const BLANK_TOOL_TEXT = "\n";
+const BLANK_FILE = "/tmp/pi-sarvam-blank.txt";
+
 // --- runner -------------------------------------------------------------------
 
 function model(id: string): Model<"openai-completions"> {
@@ -128,17 +146,24 @@ async function run(
     tools?: Tool[];
     apiKey?: string;
     userContent?: unknown;
+    /** Build a user + assistant(toolCall) + toolResult(text) + user transcript. */
+    toolResultText?: string;
+    /** False replays the raw host payload, i.e. without `fixSarvamPayload`. */
+    applyFixes?: boolean;
   },
 ): Promise<LiveResult> {
   const ctx = normalizeContext({
     systemPrompt: "You are concise. Answer briefly.",
-    messages: [
-      {
-        role: "user",
-        content: (options.userContent ?? options.prompt) as any,
-        timestamp: Date.now(),
-      },
-    ],
+    messages:
+      options.toolResultText !== undefined
+        ? toolTranscript(options.toolResultText, options.tools?.[0]?.name ?? "get_weather")
+        : [
+            {
+              role: "user",
+              content: (options.userContent ?? options.prompt) as any,
+              timestamp: Date.now(),
+            },
+          ],
     tools: options.tools,
   });
 
@@ -163,9 +188,11 @@ async function run(
     apiKey: options.apiKey ?? KEY,
     reasoning: options.reasoning,
     maxTokens: options.maxTokens ?? 16,
-    // Mirror the extension's before_provider_request hook.
+    // Mirror the extension's before_provider_request hook, unless the caller
+    // asked for the raw bytes (the control half of check H).
     onPayload: (body) => {
-      const fixed = fixSarvamPayload(body as Record<string, any>);
+      const fixed =
+        options.applyFixes === false ? undefined : fixSarvamPayload(body as Record<string, any>);
       sent = (fixed ?? body) as Record<string, any>;
       return fixed;
     },
@@ -195,6 +222,38 @@ async function run(
 }
 
 // --- A. key + listing ---------------------------------------------------------
+
+/**
+ * A transcript shaped like a real agent turn that ends in a tool result. Check H
+ * needs it because Sarvam's `\S` rule applies to *tool* messages, and a
+ * hand-built body proves nothing about what pi actually sends.
+ */
+function toolTranscript(toolResultText: string, toolName: string): Context["messages"] {
+  const assistant: AssistantMessage = {
+    role: "assistant",
+    content: [{ type: "toolCall", id: "call_1", name: toolName, arguments: { path: BLANK_FILE } }],
+    api: "openai-completions",
+    provider: "sarvam",
+    model: "sarvam-105b",
+    usage: ZERO_USAGE,
+    stopReason: "toolUse",
+    timestamp: Date.now(),
+  };
+  const toolResult: ToolResultMessage = {
+    role: "toolResult",
+    toolCallId: "call_1",
+    toolName,
+    content: [{ type: "text", text: toolResultText }],
+    isError: false,
+    timestamp: Date.now(),
+  };
+  return [
+    { role: "user", content: `Read ${BLANK_FILE}, then say ok.`, timestamp: Date.now() },
+    assistant,
+    toolResult,
+    { role: "user", content: "Continue.", timestamp: Date.now() },
+  ];
+}
 
 async function checkListing(): Promise<void> {
   const res = await fetch(`${DEFAULT_BASE_URL}/models`);
@@ -368,6 +427,87 @@ async function main(): Promise<void> {
         `spent ${r.usage.input + r.usage.output} tokens = ${money(usd)}`,
       ].join("\n"),
     );
+  }
+
+  // H: a blank tool result — rejected raw (free), accepted once sanitized.
+  {
+    const entry = CATALOG_BY_ID.get("sarvam-105b")!;
+    const readTool: Tool = {
+      name: "read",
+      description: "Read a file.",
+      parameters: Type.Object({ path: Type.String({ description: "Path" }) }),
+    };
+    const common = {
+      prompt: "ignored",
+      toolResultText: BLANK_TOOL_TEXT,
+      tools: [readTool],
+      reasoning: "off" as ThinkingLevel,
+      maxTokens: 8,
+    };
+    // H1 — the control, and a free one: a validation rejection is not billed.
+    const raw = await run(model("sarvam-105b"), { ...common, applyFixes: false });
+    // H2 — the fixed body: one tiny generation.
+    const fixed = await run(model("sarvam-105b"), common);
+    const usd = costOf(entry, fixed.usage);
+    total += usd;
+    const rawErr = raw.errorMessage ?? "";
+    const toolOf = (r: LiveResult) =>
+      (r.sent.messages ?? []).find((m: any) => m?.role === "tool")?.content;
+    report(
+      "H: blank tool result rejected raw, accepted sanitized",
+      raw.status === 400 &&
+        /tool\.content/.test(rawErr) &&
+        fixed.status === 200 &&
+        !fixed.errorMessage &&
+        toolOf(fixed) === "(no tool output)",
+      [
+        `control (fix off): wire tool.content=${JSON.stringify(toolOf(raw))} → HTTP ${raw.status}`,
+        `control error: ${rawErr.slice(0, 180)}`,
+        `with fix:        wire tool.content=${JSON.stringify(toolOf(fixed))} → HTTP ${fixed.status}`,
+        `answer: ${JSON.stringify(fixed.text.slice(0, 40))}; finish: ${fixed.stopReason}`,
+        `spent ${fixed.usage.input + fixed.usage.output} tokens = ${money(usd)} (the control is a free rejection)`,
+      ].join("\n"),
+    );
+  }
+
+  // I: credits exhausted → 402, distinguishable from a bad key's 403 (free).
+  {
+    const drained = process.env.SARVAM_DRAINED_API_KEY?.trim();
+    if (!drained) {
+      console.log(
+        "\n[SKIP] I: no-credits 402 (needs a key whose account is out of credits:" +
+          " set SARVAM_DRAINED_API_KEY; the request is a free rejection)",
+      );
+    } else {
+      const r = await run(model("sarvam-105b"), {
+        prompt: "hi",
+        reasoning: "off" as ThinkingLevel,
+        maxTokens: 8,
+        apiKey: drained,
+      });
+      const raw = r.errorMessage ?? "";
+      const clarified = clarifyQuotaErrorMessage(raw);
+      const asMsg = (m: string) =>
+        ({ role: "assistant", stopReason: "error", errorMessage: m }) as any;
+      report(
+        "I: no-credits key rejected with 402 and clarified (free)",
+        r.status === 402 &&
+          !!clarified &&
+          !isContextOverflow(asMsg(raw)) &&
+          !isRetryableAssistantError(asMsg(raw)) &&
+          !isContextOverflow(asMsg(clarified ?? "")) &&
+          !isRetryableAssistantError(asMsg(clarified ?? "")) &&
+          clarifyErrorMessage(raw) === undefined,
+        [
+          `http status: ${r.status}`,
+          `raw error as pi flattens it: ${raw.slice(0, 220)}`,
+          `clarified: ${(clarified ?? "(none)").slice(0, 220)}`,
+          `raw retryable: ${isRetryableAssistantError(asMsg(raw))} (must be false — pi lists insufficient_quota/billing as non-retryable)`,
+          `the 403 auth rewrite does not fire on it: ${clarifyErrorMessage(raw) === undefined}`,
+          `spent 0 tokens = ${money(0)}`,
+        ].join("\n"),
+      );
+    }
   }
 
   console.log(`\nTotal live spend this run: ${money(total)} (rejected requests are not billed)`);
