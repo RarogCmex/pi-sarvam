@@ -227,9 +227,20 @@ overlay is always empty — the endpoint lists exactly the two curated ids.
    `clarifyErrorMessage` turns that into a sentence naming the dashboard and
    `/login sarvam`. The rewritten text is neither retryable nor overflow-classified
    (asserted against pi's real classifiers in `test/errors.test.ts`).
-3. The persistent TUI helper entry (`turn_end`) is gated on **`ctx.hasUI`** — an
+3. **No-credits clarity.** An exhausted account returns **402** with
+   `{"message":"No credits available.","code":"insufficient_quota_error"}` —
+   measured live 2026-10-01, which **corrects an earlier claim in this README**
+   that credits and a bad key share the 403. They do not, so
+   `clarifyQuotaErrorMessage` says the part that saves the user time: the key
+   *was* accepted, rotating it will not help, top up at
+   `dashboard.sarvam.ai/billing`. pi already classifies `insufficient_quota` as
+   non-retryable and the rewrite keeps that substring, asserted against the real
+   classifier, so a drained account fails fast instead of looping.
+4. The persistent TUI helper entry (`turn_end`) is gated on **`ctx.hasUI`** — an
    entry appended after the errored assistant message makes `pi -p` print
-   *nothing*, which was reproduced live and fixed; see § Verified live.
+   *nothing*, which was reproduced live and fixed; see § Verified live. The 403
+   and 402 cases get separate `customType`s (`sarvam-auth-help`,
+   `sarvam-quota-help`) and dedupe independently.
 
 ## Surfaces — three states
 
@@ -263,15 +274,21 @@ the assertion to add is on `content`.
 
 ## What is verified live, and how
 
-All on **2026-09-26**, pi 0.87.1, with a real key. Cost discipline: every fact
-below came from a **rejected** request (free) or a tiny generation
-(`max_tokens ≤ 64`). No limit was "measured" by generating output.
+Two dated passes, both with a real key. The catalog/limit facts below were
+probed on **2026-09-26** (pi 0.87.1); the whole harness was re-run on
+**2026-10-01** (pi 0.99.2, pi-ai 0.99.2) and **A–I all PASS** with no drift in
+any gateway wording, which is also when checks H (blank tool result) and I
+(no-credits 402) were added. Cost discipline: every fact here came from a
+**rejected** request (free) or a tiny generation (`max_tokens ≤ 64`). No limit
+was "measured" by generating output.
 
 Re-running this yourself needs Node ≥ 22.18 (the harness is `.ts` executed
 directly), `node scripts/link-pi.mjs` once for the typecheck, and a key —
 `live/check.ts` resolves `SARVAM_API_KEY` or the credential stored by
 `/login sarvam` in `auth.json` under pi's agent dir (`$PI_CODING_AGENT_DIR` when
-set, else `~/.pi/agent`). It reads no other file.
+set, else `~/.pi/agent`). Check I additionally needs a key whose account is out
+of credits, via `SARVAM_DRAINED_API_KEY`; without it I reports SKIP. The
+harness reads no other file.
 
 ### Free probes (rejections disclose the truth)
 
@@ -290,6 +307,9 @@ set, else `~/.pi/agent`). It reads no other file.
 | `store:true` + `prompt_cache_key` + `prompt_cache_retention` | `200` — accepted but ignored |
 | 200 008-token prompt | `422 prompt_tokens (200008) + max_tokens (8) = 200016 exceeds the model context window of 128000 tokens for sarvam-105b` |
 | 70 008-token prompt, conversations | `422 … context window of 32000 tokens for sarvam-105b-conversations` |
+| key whose account has no credits (2026-10-01) | `402 {"message":"No credits available.","code":"insufficient_quota_error"}` — **not** the 403 a bad key gets |
+| tool message with `content: "\n"` (2026-10-01) | `400 body.messages.3.tool.content : String should match pattern '\S'` |
+| same, `content: "(no tool output)"` | `200` — the sanitized form is accepted (this half is a paid probe, 176 tokens) |
 
 ### Tiny paid probes (fractions of a cent)
 
@@ -304,16 +324,19 @@ set, else `~/.pi/agent`). It reads no other file.
 
 - `npm run typecheck` (`tsc -p tsconfig.json`) — clean.
 - `npm test` (`node --test`, with a preload that blocks `fetch`) — green;
-  97 tests at the time of writing. Run it rather than trusting the count.
+  105 tests at the time of writing. Run it rather than trusting the count.
   Includes wire-format tests that drive pi-ai's real adapter and pin the exact
   outgoing body across the catalog × every thinking level, a tool-result
   transcript for the blank-content fix (with the un-fixed control alongside it),
   and negative-safety tests against pi's real `isContextOverflow` /
   `isRetryableAssistantError`.
-- `npm run live` (`live/check.ts`) — **A–G all PASS** on 2026-09-26; setup and
-  cost in § Development and § What verifying this cost. E and F are free
-  (rejected requests); the control in E proves the raw overflow text is *not*
-  recognized by pi and that the rewrite is doing real work.
+- `npm run live` (`live/check.ts`) — **A–I all PASS on 2026-10-01** (pi 0.99.2),
+  total spend **$0.000188**; A–G previously all PASS on 2026-09-26 (pi 0.87.1).
+  Setup and cost in § Development and § What verifying this cost. E, F, H1 and I
+  are free (rejected requests). Two of the checks carry their own control: E
+  proves the raw overflow text is *not* recognized by pi, and H1 proves the raw
+  blank tool result is *still* rejected by the gateway — without H1 a passing H2
+  would not distinguish the fix from a gateway that stopped caring.
 
 ### Real `pi` runs (loaded with `-e`, no global install)
 
@@ -326,11 +349,34 @@ set, else `~/.pi/agent`). It reads no other file.
 - **Invalid key in print mode** → prints the clarified 403 sentence, exit 1.
   *Before* the `ctx.hasUI` gate this produced **no output at all**; the fix is
   covered by `test/entry.test.ts`.
+- **End-to-end beacon for the blank tool result (2026-10-01, pi 0.99.2).** A real
+  agent run whose first tool call returns whitespace, then three more steps:
+
+  ```bash
+  printf '\n' > blank.txt          # the trigger: a file that is only a newline
+  PI_CODING_AGENT_DIR=$(mktemp -d) SARVAM_API_KEY=… \
+    pi -ne -ns -np -nc -t read,bash -e ./index.ts \
+       --provider sarvam --model sarvam-105b --thinking off \
+       -p "read ./blank.txt, then run echo step1, echo step2, echo step3 \
+           as separate tool calls, then reply exactly: DONE"
+  ```
+
+  - **v0.1.1 (with the fix)** → `read` + 3 × `bash`, all four results delivered,
+    session log contains zero `tool.content` errors, prints `DONE`, exit 0
+    (2045 input / 65 output tokens).
+  - **v0.1.0 (control, cloned from the published tag)** → the model issued the
+    same four calls, and the *next* request died:
+    `400 body.messages.3.tool.content : String should match pattern '\S'`,
+    `stopReason: error`, exit 1 (971 / 62 tokens). Same prompt, same key, same
+    minute — the only difference is the sanitizer.
 
 ## What verifying this cost
 
-≈ **$0.0065** in total, at the catalog's `$0.305259/M` input and
-`$0.763146/M` output. Two facts worth carrying over:
+≈ **$0.0065** for the 2026-09-26 build, plus ≈ **$0.0012** for the 2026-10-01
+re-verification (`live/check.ts` A–I: $0.000188; the two agent runs of the
+blank-tool-result beacon: $0.00067 with the fix and $0.00034 for the v0.1.0
+control), at the catalog's `$0.305259/M` input and `$0.763146/M` output. Two
+facts worth carrying over:
 
 - **Every limit in the tables above was learned for free.** Context windows,
   output caps, role and enum validation, and the auth shape all came from
@@ -353,9 +399,13 @@ token counts on each run if you want to re-derive the cost.
 - **Cache behavior is documented, never observed.** `cacheRead` pricing comes
   from the vendor's rate card; the gateway reports no cached-token breakdown, so
   pi will bill all input at the input rate.
-- **Credits-exhausted is named but not detected.** Not reproducible without
-  draining the account. The gateway answers it with the same 403 as a bad key,
-  so the auth rewrite mentions both possibilities and distinguishes neither.
+- **Credits-exhausted was mis-documented until 2026-10-01.** This README used to
+  say an exhausted balance shares the bad key's 403 and is therefore
+  indistinguishable. Measured with a genuinely drained key, it is
+  **402 `insufficient_quota_error`** — a different status *and* code — so the two
+  are now separated (`clarifyQuotaErrorMessage`, harness check I). What is still
+  unverified: every other billing state (a hard spend cap, a suspended account,
+  a payment failure), which may or may not use the same 402.
 - **Two curated ids only.** The open-weight models are visible on the vendor's
   site but were not researched, and `/v2` is out of scope by base URL.
 
@@ -370,18 +420,16 @@ Recorded so a contributor does not re-derive it:
   under a deliberately invalid key. The control run (same key, empty config dir,
   no package) listed none — that difference is what makes the check mean
   something. Still unchecked: a request to the live gateway on a valid key.
-- **TUI rendering** of the `sarvam-auth-help` entry: only the `ctx.hasUI` gating
-  is tested; the TUI itself was not opened.
-- **The blank-tool-result fix against the live gateway.** The offline evidence is
-  the real adapter's bytes (`test/wire-format.test.ts`) plus the gateway's own
-  rejection wording quoted above, but a paid probe that a sanitized tool message
-  returns `200` — and an agent run that survives the trigger — were **not** made:
-  both spend credits and need the operator's go-ahead. The natural shapes for
-  them are a check `H` in `live/check.ts` (one tiny generation) and a
-  `pi -e ./index.ts --provider sarvam` run that `read`s a whitespace-only file
-  (`printf '\n' > /tmp/blank.txt`) and then takes ≥ 3 more tool steps. Note that
-  the obvious beacons do **not** reproduce it: an empty file and a `grep` with no
-  matches both come back placeholdered, so the session survives them.
+- **TUI rendering** of the `sarvam-auth-help` / `sarvam-quota-help` entries: only
+  the `ctx.hasUI` gating is tested; the TUI itself was not opened.
+- **Check I needs a drained key**, so for most readers `npm run live` prints
+  `[SKIP] I`. The 402 shape it asserts was measured once, on 2026-10-01, with a
+  key whose account had zero credits; if you change the quota wording, re-run it
+  with such a key rather than trusting the unit test's recorded body.
+- **Auto-compaction end to end** (see Known limitations) and **every other
+  provider in a mixed session**: the payload transform is guarded to `sarvam-*`
+  model ids and that guard is unit-tested, but no mixed-provider session was run
+  live.
 
 ## Development
 
@@ -421,8 +469,8 @@ provider.ts   createProvider assembly, auth/login, base-url resolution
 catalog.ts    pure data: ids, windows, INR prices, effort map, provenance comments
 models.ts     catalog -> pi Model: currency, compat flags, family guesses
 discovery.ts  additive /v1/models overlay (never throws)
-errors.ts     overflow normalization, auth clarification, payload fixes
-live/check.ts live A–G harness (explicit; not part of npm test)
+errors.ts     overflow normalization, auth + quota clarification, payload fixes
+live/check.ts live A–I harness (explicit; not part of npm test)
 test/*.ts     node --test suite + no-network preload
 scripts/      link-pi.mjs — dev setup only, not loaded by pi
 ```
