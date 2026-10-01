@@ -1,6 +1,6 @@
 {
   "name": "@rarogcmex/pi-sarvam",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Sarvam AI provider for pi — sarvam-105b chat catalog (128K / 32K), INR-derived USD pricing, reasoning_effort thinking control, /login and a readable overflow/auth error layer.",
   "type": "module",
   "license": "MIT",
