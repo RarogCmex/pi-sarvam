@@ -148,6 +148,46 @@ silently dropped). This was found live — a plain `curl` probe passes while rea
 rule it generalizes to: **a hand-written probe proves nothing about the shape pi
 actually sends; drive the real adapter or the real agent.**
 
+### Payload fix: blank tool results
+
+Sarvam validates a tool result's `content` with Pydantic (`min_length=1`,
+pattern `\S`), so one whose text is empty **or whitespace-only** is rejected:
+`400 body.messages.N.tool.content : String should match pattern '\S'`. Unlike a
+normal bad request, this **kills the session**: the offending turn stays in the
+transcript, so every later request replays it and fails at the *same* message
+index — resume cannot move past it, and each retry burns a round trip for zero
+tool calls.
+
+pi produces such results routinely, and nothing upstream catches the whitespace
+case. The *empty* case is caught twice over: pi's `bash` tool emits `(no output)`
+for an empty stdout (its own `formatOutput` default), and pi-ai's completions
+adapter emits `(no tool output)` when a tool result's joined text is empty — that
+substitution measured on pi-ai 0.87.0 and 0.99.2 by driving the real adapter, and
+both wordings observed live in a pi 0.99.2 session. Whitespace goes straight
+through all of it: `read` on a file whose *whole content is whitespace* reaches
+the wire as-is (observed live on pi 0.99.2 — the tool result arrived as a blank
+message). That is the reachable trigger, and the operator logs that found this
+say the same thing: across 36 run files (2026-09-29/30) there were 214
+rejections, **every one** `pattern '\S'` and none the sibling `at least 1
+character`, from 28 blank tool results — each a single `"\n"`, all from reading
+one 1-byte newline-only file (26 via `read`, 2 via a `bash` `sed -n`).
+
+`fixSarvamPayload` replaces a blank tool `content` with
+`BLANK_TOOL_CONTENT_PLACEHOLDER`, deliberately the *host's* own wording
+(`(no tool output)`), so a sanitized payload is indistinguishable from one the
+adapter built itself on a version that already placeholders empty results.
+Narrow on three axes: only `role: "tool"` is rewritten (a blank *user* turn is
+not ours to invent text for); only text is judged, so an array carrying an image
+or a malformed part passes through untouched — the same rule as the flatten
+above, fail loudly rather than drop data; and the placeholder itself is
+non-blank, so the pass is idempotent.
+
+**Deliberately not fixed:** Sarvam also answers `400 … Tool messages found but
+no tools provided` when tool messages arrive with no `tools` array, and pi-ai
+sends `tools: []` in that state (measured). Agent mode always sends tools, so
+this plugin does not invent a no-op tool to paper over a request pi built
+wrongly; `test/errors.test.ts` pins that decision.
+
 ### Currency
 
 Sarvam bills in INR; pi's `ModelCost` is USD per 1M tokens. Rate:
@@ -263,10 +303,12 @@ set, else `~/.pi/agent`). It reads no other file.
 
 - `npm run typecheck` (`tsc -p tsconfig.json`) — clean.
 - `npm test` (`node --test`, with a preload that blocks `fetch`) — green;
-  82 tests at the time of writing. Run it rather than trusting the count.
+  97 tests at the time of writing. Run it rather than trusting the count.
   Includes wire-format tests that drive pi-ai's real adapter and pin the exact
-  outgoing body across the catalog × every thinking level, and negative-safety
-  tests against pi's real `isContextOverflow` / `isRetryableAssistantError`.
+  outgoing body across the catalog × every thinking level, a tool-result
+  transcript for the blank-content fix (with the un-fixed control alongside it),
+  and negative-safety tests against pi's real `isContextOverflow` /
+  `isRetryableAssistantError`.
 - `npm run live` (`live/check.ts`) — **A–G all PASS** on 2026-09-26; setup and
   cost in § Development and § What verifying this cost. E and F are free
   (rejected requests); the control in E proves the raw overflow text is *not*
@@ -329,6 +371,16 @@ Recorded so a contributor does not re-derive it:
   something. Still unchecked: a request to the live gateway on a valid key.
 - **TUI rendering** of the `sarvam-auth-help` entry: only the `ctx.hasUI` gating
   is tested; the TUI itself was not opened.
+- **The blank-tool-result fix against the live gateway.** The offline evidence is
+  the real adapter's bytes (`test/wire-format.test.ts`) plus the gateway's own
+  rejection wording quoted above, but a paid probe that a sanitized tool message
+  returns `200` — and an agent run that survives the trigger — were **not** made:
+  both spend credits and need the operator's go-ahead. The natural shapes for
+  them are a check `H` in `live/check.ts` (one tiny generation) and a
+  `pi -e ./index.ts --provider sarvam` run that `read`s a whitespace-only file
+  (`printf '\n' > /tmp/blank.txt`) and then takes ≥ 3 more tool steps. Note that
+  the obvious beacons do **not** reproduce it: an empty file and a `grep` with no
+  matches both come back placeholdered, so the session survives them.
 
 ## Development
 
