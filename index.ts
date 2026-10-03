@@ -8,9 +8,11 @@
  * HTTP 403 auth → an actionable sentence, HTTP 402 no-credits → the billing
  * page instead of a pointless key rotation).
  *
- * pi 0.87 boundaries: `message_end` rewrites the error bubble (overflow and
- * auth), while `turn_end` appends a persistent `custom_message` with the
- * dashboard link so the auth fix survives scrolling.
+ * pi 0.87 boundaries, last probed live on 0.99.2: `message_end` rewrites the error
+ * bubble (overflow and auth), while `turn_end` appends a persistent
+ * `custom_message` with the dashboard link so the auth fix survives scrolling.
+ * On pi 1.0.0 (2026-10-03) the offline suite and the provider load are green; the
+ * live rewrite was not re-probed there (it spends gateway credits).
  */
 
 // NOTE on this import: pi's extension loader aliases the bare

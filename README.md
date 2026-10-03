@@ -162,7 +162,9 @@ pi produces such results routinely, and nothing upstream catches the whitespace
 case. The *empty* case is caught twice over: pi's `bash` tool emits `(no output)`
 for an empty stdout (its own `formatOutput` default), and pi-ai's completions
 adapter emits `(no tool output)` when a tool result's joined text is empty — that
-substitution measured on pi-ai 0.87.0 and 0.99.2 by driving the real adapter, and
+substitution measured on pi-ai 0.87.0, 0.99.2 and 1.0.0 by driving the real adapter
+(the 2026-10-03 re-run is identical to the 0.99.2 capture: empty goes out as `(no
+tool output)`, whitespace still goes through as-is), and
 both wordings observed live in a pi 0.99.2 session. Whitespace goes straight
 through all of it: `read` on a file whose *whole content is whitespace* reaches
 the wire as-is (observed live on pi 0.99.2 — the tool result arrived as a blank
@@ -451,7 +453,10 @@ links them from your global pi install; it probes the npm prefix, nvm, pnpm,
 creates junctions on Windows. For a specific install:
 `PI_ROOT=/path/to/node_modules node scripts/link-pi.mjs`. Verified against
 pi 0.87.1 / pi-ai 0.87.1 / `@types/node` 22.19.19; the same setup and
-`npm run check` were re-run on pi 0.99.1 / pi-ai 0.99.1 (2026-09-30) — 82/82 green.
+`npm run check` were re-run on pi 0.99.1 / pi-ai 0.99.1 (2026-09-30, 82/82 green),
+on pi 0.99.2 (2026-10-01, 105/105) and on pi 1.0.0 / pi-ai 1.0.0 (2026-10-03,
+105/105 green; `pi -ne -e <repo> --offline --list-models sarvam` prints the same
+two models).
 
 `npm run typecheck` shells out to a bare `tsc`, and this repo deliberately carries
 no devDependencies (`scripts/link-pi.mjs` links only pi's packages), so TypeScript

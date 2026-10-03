@@ -204,9 +204,10 @@ export function flattenMessageContent(
 /**
  * The text a blank tool result is replaced with. Deliberately the *host's* own
  * wording: pi-ai's completions adapter already substitutes this exact string
- * when a tool result joins to an empty text (measured on pi-ai 0.87.0 and
- * 0.99.2), so a sanitized payload is indistinguishable from one the adapter
- * built itself, whichever pi version produced it.
+ * when a tool result joins to an empty text (measured on pi-ai 0.87.0, 0.99.2
+ * and 1.0.0 — the 2026-10-03 re-run is identical), so a sanitized payload is
+ * indistinguishable from one the adapter built itself, whichever pi version
+ * produced it.
  */
 export const BLANK_TOOL_CONTENT_PLACEHOLDER = "(no tool output)";
 
@@ -229,8 +230,8 @@ const BLANK_TEXT_RE = /^\s*$/;
  * Whitespace-only is the reachable case: a *truly empty* result is already
  * placeholdered twice over — pi's `bash` tool emits `(no output)` for an empty
  * stdout, and pi-ai's completions adapter emits `(no tool output)` when a tool
- * result joins to empty text (that substitution measured on pi-ai 0.87.0 and
- * 0.99.2 by driving the real adapter; both wordings also observed live in a pi
+ * result joins to empty text (that substitution measured on pi-ai 0.87.0, 0.99.2
+ * and 1.0.0 by driving the real adapter; both wordings also observed live in a pi
  * 0.99.2 session). A result whose text is only whitespace passes through both —
  * which is the gap this closes.
  *
