@@ -284,7 +284,8 @@ any gateway wording, which is also when checks H (blank tool result) and I
 **rejected** request (free) or a tiny generation (`max_tokens ≤ 64`). No limit
 was "measured" by generating output.
 
-Re-running this yourself needs Node ≥ 22.18 (the harness is `.ts` executed
+Re-running this yourself needs Node ≥ 22.19 (the floor is pi's own `engines.node`,
+measured `>=22.19.0` on both 0.87.0 and 1.0.0; the harness is `.ts` executed
 directly), `node scripts/link-pi.mjs` once for the typecheck, and a key —
 `live/check.ts` resolves `SARVAM_API_KEY` or the credential stored by
 `/login sarvam` in `auth.json` under pi's agent dir (`$PI_CODING_AGENT_DIR` when
@@ -441,9 +442,10 @@ npm run check              # typecheck + offline tests (fetch is blocked by a pr
 npm run live               # opt-in A–G harness against the real gateway; spends credits
 ```
 
-Prerequisites: **Node ≥ 22.18** (the tests and `live/check.ts` are `.ts` run
-directly — type stripping and `node --test`'s `.ts` discovery are unflagged from
-22.18) and a pi install.
+Prerequisites: **Node ≥ 22.19** — the floor comes from the host: pi's own
+`engines.node` is `>=22.19.0` (measured on both 0.87.0 and 1.0.0). The tests and
+`live/check.ts` are `.ts` run directly (type stripping and `node --test`'s `.ts`
+discovery are unflagged from 22.18) and a pi install is required.
 
 pi's own packages are not dependencies of this plugin — at runtime pi's extension
 loader aliases the bare `@earendil-works/pi-ai` specifier to its own copy — so a
