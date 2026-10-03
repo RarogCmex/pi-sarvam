@@ -335,6 +335,11 @@ harness reads no other file.
   `isRetryableAssistantError`.
 - `npm run live` (`live/check.ts`) — **A–I all PASS on 2026-10-01** (pi 0.99.2),
   total spend **$0.000188**; A–G previously all PASS on 2026-09-26 (pi 0.87.1).
+  Re-run against **pi 1.0.0 / pi-ai 1.0.0** on **2026-10-03**: **A–H PASS, I
+  SKIP** (that day no key with a drained account was on hand, and I is a free
+  rejection), same total spend **$0.000188** — including the H pair, where the
+  un-fixed control still draws the gateway's own `\S` rejection and the
+  sanitized placeholder is accepted (`200`, `finish: stop`).
   Setup and cost in § Development and § What verifying this cost. E, F, H1 and I
   are free (rejected requests). Two of the checks carry their own control: E
   proves the raw overflow text is *not* recognized by pi, and H1 proves the raw
