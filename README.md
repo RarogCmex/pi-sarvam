@@ -461,9 +461,10 @@ creates junctions on Windows. For a specific install:
 `PI_ROOT=/path/to/node_modules node scripts/link-pi.mjs`. Verified against
 pi 0.87.1 / pi-ai 0.87.1 / `@types/node` 22.19.19; the same setup and
 `npm run check` were re-run on pi 0.99.1 / pi-ai 0.99.1 (2026-09-30, 82/82 green),
-on pi 0.99.2 (2026-10-01, 105/105) and on pi 1.0.0 / pi-ai 1.0.0 (2026-10-03,
-105/105 green; `pi -ne -e <repo> --offline --list-models sarvam` prints the same
-two models).
+on pi 0.99.2 (2026-10-01, 105/105), on pi 1.0.0 / pi-ai 1.0.0 (2026-10-03,
+105/105 green) and on pi 1.0.4 / pi-ai 1.0.4 (2026-10-06, 105/105 green;
+`pi -ne -e <repo> --offline --list-models sarvam` prints the same two models on
+both 1.0.x hosts).
 
 `npm run typecheck` shells out to a bare `tsc`, and this repo deliberately carries
 no devDependencies (`scripts/link-pi.mjs` links only pi's packages), so TypeScript
